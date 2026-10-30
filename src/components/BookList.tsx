@@ -56,6 +56,8 @@ export default function BookList() {
         filter: "agNumberColumnFilter",
         valueFormatter: (params) => (params.value == null ? "" : priceFormatter.format(params.value)),
       },
+      // admins see everyone's books, so show whose each one is
+      ...(isAdmin ? [{ field: "ownerUsername", headerName: "Owner", maxWidth: 160 } as ColDef<Book>] : []),
       {
         headerName: "Actions",
         sortable: false,
@@ -67,11 +69,9 @@ export default function BookList() {
               <Button size="small" variant="contained" color="success" component={RouterLink} to={`/books/${params.data.id}/edit`}>
                 Edit
               </Button>
-              {isAdmin && (
-                <Button size="small" variant="contained" color="error" onClick={() => deleteBook(params.data!)}>
-                  Delete
-                </Button>
-              )}
+              <Button size="small" variant="contained" color="error" onClick={() => deleteBook(params.data!)}>
+                Delete
+              </Button>
             </Box>
           ),
       },
@@ -83,7 +83,7 @@ export default function BookList() {
     <Box className="page">
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2, gap: 2, flexWrap: "wrap" }}>
         <Typography variant="h4" component="h1">
-          Books
+          {isAdmin ? "All books" : "My books"}
         </Typography>
         <Button variant="contained" component={RouterLink} to="/books/new">
           Add new book
@@ -96,6 +96,8 @@ export default function BookList() {
         <Box className="loading-container">
           <CircularProgress />
         </Box>
+      ) : books.length === 0 && !error ? (
+        <Alert severity="info">You have no books yet. Add your first one with "Add new book".</Alert>
       ) : (
         <div className="ag-theme-alpine grid-container">
           <AgGridReact<Book>

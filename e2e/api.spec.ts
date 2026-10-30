@@ -5,9 +5,12 @@ import {
   FRONTEND_ORIGIN,
   USER,
   apiLogin,
+  apiSignup,
   bearer,
+  deleteAccount,
   deleteTestBooks,
   uniqueTitle,
+  uniqueUser,
 } from "./helpers";
 
 // Every backend endpoint, called directly the way the frontend calls it
@@ -17,6 +20,7 @@ test.describe("backend API", () => {
   let userToken: string;
   let adminToken: string;
   let categoryId: number;
+  const createdUsers: { username: string; password: string }[] = [];
 
   test.beforeAll(async ({ request }) => {
     userToken = await apiLogin(request, USER);
@@ -25,6 +29,9 @@ test.describe("backend API", () => {
 
   test.afterAll(async ({ request }) => {
     await deleteTestBooks(request);
+    for (const user of createdUsers) {
+      await deleteAccount(request, user);
+    }
   });
 
   test.describe("POST /api/auth/login", () => {
@@ -102,7 +109,14 @@ test.describe("backend API", () => {
       expect(response.status()).toBe(404);
     });
 
-    test("create, read, edit and delete a book", async ({ request }) => {
+    test("a user's list has only their own books", async ({ request }) => {
+      const books = await (await request.get(`${API_URL}/api/books`, { headers: bearer(userToken) })).json();
+      for (const book of books) {
+        expect(book.ownerUsername).toBe(USER.username);
+      }
+    });
+
+    test("owner creates, reads, edits and deletes a book", async ({ request }) => {
       const title = uniqueTitle("api");
       const book = {
         title,
@@ -116,7 +130,7 @@ test.describe("backend API", () => {
       const created = await request.post(`${API_URL}/api/books`, { headers: bearer(userToken), data: book });
       expect(created.status()).toBe(201);
       const createdBook = await created.json();
-      expect(createdBook).toMatchObject({ title, price: 9.99, category: { id: categoryId } });
+      expect(createdBook).toMatchObject({ title, price: 9.99, category: { id: categoryId }, ownerUsername: USER.username });
 
       const read = await request.get(`${API_URL}/api/books/${createdBook.id}`, { headers: bearer(userToken) });
       expect(read.status()).toBe(200);
@@ -127,24 +141,49 @@ test.describe("backend API", () => {
         data: { ...book, title: `${title} edited`, price: 12.5 },
       });
       expect(edited.status()).toBe(200);
-      expect(await edited.json()).toMatchObject({ id: createdBook.id, title: `${title} edited`, price: 12.5 });
-
-      // only admins may delete
-      const userDelete = await request.delete(`${API_URL}/api/books/${createdBook.id}`, { headers: bearer(userToken) });
-      expect(userDelete.status()).toBe(403);
-
-      const adminDelete = await request.delete(`${API_URL}/api/books/${createdBook.id}`, {
-        headers: bearer(adminToken),
+      expect(await edited.json()).toMatchObject({
+        id: createdBook.id,
+        title: `${title} edited`,
+        price: 12.5,
+        ownerUsername: USER.username,
       });
-      expect(adminDelete.status()).toBe(204);
+
+      const deleted = await request.delete(`${API_URL}/api/books/${createdBook.id}`, { headers: bearer(userToken) });
+      expect(deleted.status()).toBe(204);
 
       const gone = await request.get(`${API_URL}/api/books/${createdBook.id}`, { headers: bearer(userToken) });
       expect(gone.status()).toBe(404);
 
-      const deleteAgain = await request.delete(`${API_URL}/api/books/${createdBook.id}`, {
-        headers: bearer(adminToken),
-      });
+      const deleteAgain = await request.delete(`${API_URL}/api/books/${createdBook.id}`, { headers: bearer(userToken) });
       expect(deleteAgain.status()).toBe(404);
+    });
+
+    test("other users cannot see or change a user's book; admins can", async ({ request }) => {
+      const other = uniqueUser("other");
+      createdUsers.push(other);
+      const otherToken = await apiSignup(request, other);
+
+      const title = uniqueTitle("private");
+      const created = await request.post(`${API_URL}/api/books`, {
+        headers: bearer(userToken),
+        data: { title, author: "E2E Author", isbn: "1", publicationYear: 2024, category: { id: categoryId } },
+      });
+      const bookId = (await created.json()).id;
+
+      const otherList = await (await request.get(`${API_URL}/api/books`, { headers: bearer(otherToken) })).json();
+      expect(otherList).toEqual([]);
+      expect((await request.get(`${API_URL}/api/books/${bookId}`, { headers: bearer(otherToken) })).status()).toBe(404);
+      const put = await request.put(`${API_URL}/api/books/${bookId}`, {
+        headers: bearer(otherToken),
+        data: { title: "Stolen", author: "x", isbn: "1", publicationYear: 2000 },
+      });
+      expect(put.status()).toBe(404);
+      expect((await request.delete(`${API_URL}/api/books/${bookId}`, { headers: bearer(otherToken) })).status()).toBe(404);
+
+      // admin sees every user's books, with the owner
+      const adminList = await (await request.get(`${API_URL}/api/books`, { headers: bearer(adminToken) })).json();
+      expect(adminList.find((b: { id: number }) => b.id === bookId)).toMatchObject({ title, ownerUsername: USER.username });
+      expect((await request.delete(`${API_URL}/api/books/${bookId}`, { headers: bearer(adminToken) })).status()).toBe(204);
     });
 
     test("PUT of a missing book is 404", async ({ request }) => {
@@ -169,6 +208,71 @@ test.describe("backend API", () => {
         data: { title: uniqueTitle("badcat"), author: "A", isbn: "1", publicationYear: 2000, category: { id: 987654321 } },
       });
       expect(response.status()).toBe(400);
+    });
+  });
+
+  test.describe("POST /api/auth/signup and DELETE /api/users/me", () => {
+    test("a new user is signed in and starts with no books", async ({ request }) => {
+      const user = uniqueUser("signup");
+      createdUsers.push(user);
+      const response = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, passwordCheck: user.password },
+      });
+      expect(response.status()).toBe(201);
+      const body = await response.json();
+      expect(body).toMatchObject({ username: user.username, roles: ["ROLE_USER"] });
+
+      const books = await request.get(`${API_URL}/api/books`, { headers: bearer(body.token) });
+      expect(await books.json()).toEqual([]);
+
+      // the new password works for signing in
+      await apiLogin(request, user);
+    });
+
+    test("taken user names and emails are refused", async ({ request }) => {
+      const user = uniqueUser("taken");
+      createdUsers.push(user);
+      await apiSignup(request, user);
+
+      const sameName = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, email: `other-${user.email}`, passwordCheck: user.password },
+      });
+      expect(sameName.status()).toBe(409);
+      expect((await sameName.json()).message).toBe("Username is already taken.");
+
+      const sameEmail = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, username: `${user.username}x`, passwordCheck: user.password },
+      });
+      expect(sameEmail.status()).toBe(409);
+      expect((await sameEmail.json()).message).toBe("Email is already in use.");
+    });
+
+    test("bad signup input is 400", async ({ request }) => {
+      const user = uniqueUser("bad");
+      const mismatch = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, passwordCheck: "something-else" },
+      });
+      expect(mismatch.status()).toBe(400);
+      expect((await mismatch.json()).message).toBe("Passwords do not match.");
+
+      const short = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, password: "short", passwordCheck: "short" },
+      });
+      expect(short.status()).toBe(400);
+      expect((await short.json()).message).toContain("password size must be between 7 and 30");
+
+      const badEmail = await request.post(`${API_URL}/api/auth/signup`, {
+        data: { ...user, email: "not-an-email", passwordCheck: user.password },
+      });
+      expect(badEmail.status()).toBe(400);
+    });
+
+    test("a user can delete their account", async ({ request }) => {
+      const user = uniqueUser("leaving");
+      const token = await apiSignup(request, user);
+      expect((await request.delete(`${API_URL}/api/users/me`, { headers: bearer(token) })).status()).toBe(204);
+      const login = await request.post(`${API_URL}/api/auth/login`, { data: user });
+      expect(login.status()).toBe(401);
     });
   });
 

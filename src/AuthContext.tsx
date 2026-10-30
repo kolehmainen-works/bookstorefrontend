@@ -7,7 +7,15 @@ interface AuthContextValue {
   session: LoginResponse | null;
   isAdmin: boolean;
   login: (username: string, password: string) => Promise<void>;
+  signup: (form: SignupForm) => Promise<void>;
   logout: () => void;
+}
+
+export interface SignupForm {
+  username: string;
+  email: string;
+  password: string;
+  passwordCheck: string;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -29,6 +37,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(response);
   }, []);
 
+  // creates the account and signs the new user in
+  const signup = useCallback(async (form: SignupForm) => {
+    const response = await apiFetch<LoginResponse>("/api/auth/signup", {
+      method: "POST",
+      body: JSON.stringify(form),
+    });
+    saveSession(response);
+    setSession(response);
+  }, []);
+
   // an expired or rejected token signs the user out
   useEffect(() => {
     setUnauthorizedHandler(logout);
@@ -43,9 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isAdmin: session?.roles.includes("ROLE_ADMIN") ?? false,
       login,
+      signup,
       logout,
     }),
-    [session, login, logout]
+    [session, login, signup, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

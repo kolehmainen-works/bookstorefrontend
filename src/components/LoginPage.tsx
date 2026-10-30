@@ -68,6 +68,9 @@ export default function LoginPage() {
           <Link component={RouterLink} to="/forgot-password">
             Forgot password?
           </Link>
+          <Link component={RouterLink} to="/signup">
+            New here? Create an account
+          </Link>
         </Box>
       </Paper>
     </Box>

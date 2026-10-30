@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN, USER, deleteTestBooks, uiLogin, uniqueTitle } from "./helpers";
+import { ADMIN, USER, deleteAccount, deleteTestBooks, uiLogin, uniqueTitle, uniqueUser } from "./helpers";
 
 // The deployed React app in a real browser, talking to the deployed backend
 test.describe("frontend + backend together", () => {
@@ -7,9 +7,13 @@ test.describe("frontend + backend together", () => {
 
   const title = uniqueTitle("ui");
   const editedTitle = `${title} edited`;
+  const createdUsers: { username: string; password: string }[] = [];
 
   test.afterAll(async ({ request }) => {
     await deleteTestBooks(request);
+    for (const user of createdUsers) {
+      await deleteAccount(request, user);
+    }
   });
 
   test("signed-out users are sent to the login page", async ({ page }) => {
@@ -26,16 +30,17 @@ test.describe("frontend + backend together", () => {
     await expect(page.getByText("Invalid username or password.")).toBeVisible();
   });
 
-  test("user sees the book list, without Delete buttons", async ({ page }) => {
+  test("user sees their own books, without the Owner column", async ({ page }) => {
     await uiLogin(page, USER);
     await expect(page).toHaveURL(/#\/books$/);
-    await expect(page.getByRole("heading", { name: "Books" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My books" })).toBeVisible();
     await expect(page.locator(".ag-row").first()).toBeVisible();
     for (const header of ["Product code", "Author", "Title", "Year", "Category", "ISBN", "Price", "Actions"]) {
       await expect(page.locator(".ag-header-cell-text", { hasText: header }).first()).toBeVisible();
     }
+    await expect(page.locator(".ag-header-cell-text", { hasText: "Owner" })).toHaveCount(0);
     await expect(page.locator(".ag-row").first().getByRole("link", { name: "Edit" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await expect(page.locator(".ag-row").first().getByRole("button", { name: "Delete" })).toBeVisible();
   });
 
   test("the login survives a page reload", async ({ page }) => {
@@ -97,8 +102,17 @@ test.describe("frontend + backend together", () => {
     await expect(page).toHaveURL(/#\/login$/);
   });
 
-  test("admin deletes the book", async ({ page }) => {
+  test("admin sees everyone's books with their owner", async ({ page }) => {
     await uiLogin(page, ADMIN);
+    await expect(page.getByRole("heading", { name: "All books" })).toBeVisible();
+    await expect(page.locator(".ag-header-cell-text", { hasText: "Owner" })).toBeVisible();
+    const row = page.locator(".ag-row", { hasText: editedTitle });
+    await expect(row).toBeVisible();
+    await expect(row.locator('[col-id="ownerUsername"]')).toHaveText(USER.username);
+  });
+
+  test("user deletes their own book", async ({ page }) => {
+    await uiLogin(page, USER);
     const row = page.locator(".ag-row", { hasText: editedTitle });
     await expect(row).toBeVisible();
     page.once("dialog", (dialog) => dialog.accept());
@@ -107,6 +121,59 @@ test.describe("frontend + backend together", () => {
     await page.reload();
     await expect(page.locator(".ag-row").first()).toBeVisible();
     await expect(page.locator(".ag-row", { hasText: editedTitle })).toHaveCount(0);
+  });
+
+  test("a new user signs up and sees only their own books", async ({ page, request }) => {
+    const newUser = uniqueUser("ui");
+    createdUsers.push(newUser);
+    const ownTitle = uniqueTitle("signup");
+
+    await page.goto("#/login");
+    await page.getByRole("link", { name: "New here? Create an account" }).click();
+    await expect(page.getByRole("heading", { name: "Create an account" })).toBeVisible();
+    await page.getByLabel(/^User name/).fill(newUser.username);
+    await page.getByLabel(/^Email/).fill(newUser.email);
+    await page.getByLabel(/^Password/).fill(newUser.password);
+    await page.getByLabel(/^Re-type password/).fill(newUser.password);
+    await page.getByRole("button", { name: "Sign up" }).click();
+
+    // signed in straight away, with an empty list
+    await expect(page.getByText(`Logged in as: ${newUser.username}`)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "My books" })).toBeVisible();
+    await expect(page.getByText("You have no books yet.")).toBeVisible();
+
+    await page.getByRole("link", { name: "Add new book" }).click();
+    await page.getByLabel(/^Author/).fill("E2E Author");
+    await page.getByLabel(/^Title/).fill(ownTitle);
+    await page.getByLabel(/^Publication year/).fill("2025");
+    await page.getByLabel(/^ISBN/).fill("9780000000003");
+    await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.locator(".ag-row", { hasText: ownTitle })).toBeVisible();
+    await expect(page.locator(".ag-row")).toHaveCount(1);
+
+    // the demo user does not see the new user's book
+    await page.getByRole("button", { name: "Sign out" }).click();
+    await uiLogin(page, USER);
+    await expect(page.locator(".ag-row").first()).toBeVisible();
+    await expect(page.locator(".ag-row", { hasText: ownTitle })).toHaveCount(0);
+
+    await deleteAccount(request, newUser);
+  });
+
+  test("signup shows errors for a taken name and bad passwords", async ({ page }) => {
+    await page.goto("#/signup");
+    await page.getByLabel(/^User name/).fill(USER.username);
+    await page.getByLabel(/^Email/).fill(`taken-${Date.now()}@example.com`);
+    await page.getByLabel(/^Password/).fill("short");
+    await expect(page.getByText("Password must be 7-30 characters long")).toBeVisible();
+    await page.getByLabel(/^Password/).fill("password-123");
+    await page.getByLabel(/^Re-type password/).fill("password-456");
+    await expect(page.getByText("Passwords do not match")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sign up" })).toBeDisabled();
+
+    await page.getByLabel(/^Re-type password/).fill("password-123");
+    await page.getByRole("button", { name: "Sign up" }).click();
+    await expect(page.getByText("Username is already taken.")).toBeVisible();
   });
 
   test("forgot password page sends the request", async ({ page }) => {

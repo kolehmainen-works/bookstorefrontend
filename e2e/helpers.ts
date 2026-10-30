@@ -28,6 +28,32 @@ export function bearer(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
+// every user the tests sign up starts with this
+export const TEST_USER_PREFIX = "e2e_";
+export const TEST_USER_PASSWORD = "e2e-password-1";
+
+export function uniqueUser(label: string) {
+  const username = `${TEST_USER_PREFIX}${label}_${Date.now()}`;
+  return { username, email: `${username}@example.com`, password: TEST_USER_PASSWORD };
+}
+
+export async function apiSignup(request: APIRequestContext, user: { username: string; email: string; password: string }) {
+  const response = await request.post(`${API_URL}/api/auth/signup`, {
+    data: { ...user, passwordCheck: user.password },
+  });
+  expect(response.status(), `signup ${user.username}`).toBe(201);
+  return (await response.json()).token as string;
+}
+
+// deletes a test user's account and books; ignores users that are already gone
+export async function deleteAccount(request: APIRequestContext, user: { username: string; password: string }) {
+  const login = await request.post(`${API_URL}/api/auth/login`, { data: user });
+  if (login.status() !== 200) return;
+  const token = (await login.json()).token as string;
+  const response = await request.delete(`${API_URL}/api/users/me`, { headers: bearer(token) });
+  expect(response.status()).toBe(204);
+}
+
 // removes books left behind by failed test runs
 export async function deleteTestBooks(request: APIRequestContext) {
   const token = await apiLogin(request, ADMIN);

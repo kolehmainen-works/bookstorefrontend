@@ -11,6 +11,8 @@ export interface Book {
   publicationYear: number;
   price: number | null;
   category: Category | null;
+  // the user who added the book
+  ownerUsername: string | null;
 }
 
 // what the form sends: no id, and only the id of the category

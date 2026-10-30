@@ -10,7 +10,8 @@ Live: https://kolehmainen-works.github.io/bookstorefrontend.github.io/
 | Route | What it does |
 |---|---|
 | `/#/login` | Sign in (demo users `user`/`user` and `admin`/`admin`) |
-| `/#/books` | Book list; everyone can edit, only admins can delete |
+| `/#/signup` | Create an account; signs the new user in |
+| `/#/books` | "My books": the signed-in user's own books to edit and delete. Admins see "All books" with an Owner column |
 | `/#/books/new`, `/#/books/:id/edit` | Add or edit a book |
 | `/#/forgot-password` | Ask for a password reset email |
 | `/#/reset-password?token=...` | Opened from the email link; set a new password |
@@ -18,8 +19,10 @@ Live: https://kolehmainen-works.github.io/bookstorefrontend.github.io/
 ## End-to-end tests
 
 `e2e/` has Playwright tests that run against the **deployed** site and backend: every API
-endpoint (login, books CRUD, roles, categories, password reset, CORS) and the React pages in a
-real browser. They create books named `E2E test book ...` and delete them afterwards.
+endpoint (signup, login, own books and admin view, categories, account deletion, password reset,
+CORS) and the React pages in a
+real browser. They create books named `E2E test book ...` and users named `e2e_...`, and delete
+them afterwards.
 
 ```bash
 npx playwright install chromium   # once

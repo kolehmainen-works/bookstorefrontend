@@ -13,6 +13,7 @@ import LoginPage from "./components/LoginPage";
 import NavigationBar from "./components/NavigationBar";
 import RequireAuth from "./components/RequireAuth";
 import ResetPasswordPage from "./components/ResetPasswordPage";
+import SignupPage from "./components/SignupPage";
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
           <NavigationBar />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/books" element={<RequireAuth><BookList /></RequireAuth>} />
