@@ -1,0 +1,29 @@
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px;
+}
+
+.page.narrow {
+  max-width: 440px;
+}
+
+.loading-container {
+  display: flex;
+  justify-content: center;
+  padding: 48px;
+}
+
+.grid-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.ag-theme-alpine .ag-header {
+  background-color: #212529;
+}
+
+.ag-theme-alpine .ag-header-cell-text,
+.ag-theme-alpine .ag-header-icon {
+  color: #ffffff;
+}

@@ -1,0 +1,9 @@
+node_modules
+dist
+*.tmp
+*.tsbuildinfo
+e2e-report
+test-results
+
+# local Claude Code settings
+.claude/
